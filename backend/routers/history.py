@@ -1,18 +1,40 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
-from bson import ObjectId
 
 from database import get_db
 from models.user import UserPublic
-from routers.auth import get_current_user
+from routers.api_utils import ok, serialize_history
+from routers.auth import get_current_user, require_admin
 
 router = APIRouter()
 
 
-def _to_object_id(id_str: str) -> ObjectId:
-    try:
-        return ObjectId(id_str)
-    except Exception:
-        raise HTTPException(status_code=422, detail=f"Invalid ID: {id_str}")
+async def _history_page(query: dict, page: int, limit: int) -> dict:
+    db = get_db()
+    skip = (page - 1) * limit
+    cursor = db.history.find(query).sort("started_at", -1).skip(skip).limit(limit)
+    total = await db.history.count_documents(query)
+    items = [serialize_history(doc) async for doc in cursor]
+    return {"items": items, "page": page, "limit": limit, "total": total}
+
+
+@router.get("/me")
+async def my_history(
+    page: int = Query(1, ge=1),
+    limit: int = Query(20, ge=1, le=100),
+    user: UserPublic = Depends(get_current_user),
+):
+    return ok(await _history_page({"user_id": user.id}, page, limit))
+
+
+@router.get("/all")
+async def all_history(
+    page: int = Query(1, ge=1),
+    limit: int = Query(20, ge=1, le=100),
+    user_id: str | None = None,
+    _: UserPublic = Depends(require_admin),
+):
+    query = {"user_id": user_id} if user_id else {}
+    return ok(await _history_page(query, page, limit))
 
 
 @router.get("")
@@ -21,30 +43,19 @@ async def list_history(
     limit: int = Query(20, ge=1, le=100),
     user: UserPublic = Depends(get_current_user),
 ):
-    db = get_db()
-    query: dict = {}
-    if user.role != "admin":
-        query["user_id"] = user.id
-    skip = (page - 1) * limit
-    cursor = db.history.find(query).sort("started_at", -1).skip(skip).limit(limit)
-    total = await db.history.count_documents(query)
-    docs = []
-    async for doc in cursor:
-        doc["_id"] = str(doc["_id"])
-        docs.append(doc)
-    return {"items": docs, "total": total, "page": page, "limit": limit}
+    query = {} if user.role == "admin" else {"user_id": user.id}
+    return ok(await _history_page(query, page, limit))
 
 
-@router.get("/{history_id}")
+@router.get("/{session_id}")
 async def get_history_entry(
-    history_id: str,
+    session_id: str,
     user: UserPublic = Depends(get_current_user),
 ):
     db = get_db()
-    doc = await db.history.find_one({"_id": _to_object_id(history_id)})
+    doc = await db.history.find_one({"session_id": session_id})
     if not doc:
         raise HTTPException(status_code=404, detail="History entry not found")
     if user.role != "admin" and doc.get("user_id") != user.id:
         raise HTTPException(status_code=403, detail="Access denied")
-    doc["_id"] = str(doc["_id"])
-    return doc
+    return ok(serialize_history(doc))

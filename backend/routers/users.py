@@ -1,31 +1,34 @@
-from datetime import datetime
+from typing import Literal
 
-from bson import ObjectId
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
+from pymongo import ReturnDocument
 
 from database import get_db
 from models.user import UserCreate, UserModel
+from routers.api_utils import ok, serialize_doc, to_object_id
 from routers.auth import require_admin
 
 router = APIRouter()
 
 
-def _to_object_id(id_str: str) -> ObjectId:
-    try:
-        return ObjectId(id_str)
-    except Exception:
-        raise HTTPException(status_code=422, detail=f"Invalid ID: {id_str}")
+class UserUpdateBody(BaseModel):
+    name: str
+    role: Literal["client", "admin"]
+
+
+def _public_user(doc: dict) -> dict:
+    result = serialize_doc(doc)
+    result.pop("rfid_uid", None)
+    return result
 
 
 @router.get("")
 async def list_users(_ = Depends(require_admin)):
     db = get_db()
-    docs = []
-    async for doc in db.users.find():
-        doc["_id"] = str(doc["_id"])
-        doc.pop("rfid_uid", None)
-        docs.append(doc)
-    return docs
+    cursor = db.users.find().sort("name", 1)
+    users = [_public_user(doc) async for doc in cursor]
+    return ok(users)
 
 
 @router.post("", status_code=201)
@@ -37,14 +40,40 @@ async def create_user(body: UserCreate, _ = Depends(require_admin)):
     user = UserModel(rfid_uid=body.rfid_uid, name=body.name, role=body.role)
     doc = user.model_dump(by_alias=True, exclude_none=True)
     result = await db.users.insert_one(doc)
-    doc["_id"] = str(result.inserted_id)
-    doc.pop("rfid_uid", None)
-    return doc
+    created = await db.users.find_one({"_id": result.inserted_id})
+    return ok(_public_user(created))
 
 
-@router.delete("/{user_id}", status_code=204)
+@router.put("/{user_id}")
+async def update_user(
+    user_id: str,
+    body: UserUpdateBody,
+    _ = Depends(require_admin),
+):
+    db = get_db()
+    result = await db.users.find_one_and_update(
+        {"_id": to_object_id(user_id)},
+        {"$set": {"name": body.name, "role": body.role}},
+        return_document=ReturnDocument.AFTER,
+    )
+    if not result:
+        raise HTTPException(status_code=404, detail="User not found")
+    return ok(_public_user(result))
+
+
+@router.delete("/{user_id}")
 async def delete_user(user_id: str, _ = Depends(require_admin)):
     db = get_db()
-    result = await db.users.delete_one({"_id": _to_object_id(user_id)})
-    if result.deleted_count == 0:
+    user_oid = to_object_id(user_id)
+    user_doc = await db.users.find_one({"_id": user_oid})
+    if not user_doc:
         raise HTTPException(status_code=404, detail="User not found")
+
+    cursor = db.brew_sessions.find({"user_id": user_id, "status": "active"})
+    from routers.ws import _abandon_session
+
+    async for session_doc in cursor:
+        await _abandon_session(str(session_doc["_id"]), "user_deleted")
+
+    await db.users.delete_one({"_id": user_oid})
+    return ok(None)

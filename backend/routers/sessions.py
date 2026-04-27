@@ -1,22 +1,170 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from bson import ObjectId
 from fastapi import APIRouter, Depends, HTTPException, Request
+from pydantic import BaseModel
 
 import state as st
 from database import get_db
+from models.history import HistoryModel
 from models.session import BrewSessionModel, SessionCreate
 from models.user import UserPublic
+from routers.api_utils import ok, serialize_doc, serialize_recipe, to_object_id
 from routers.auth import get_current_user
 
 router = APIRouter()
 
 
-def _to_object_id(id_str: str) -> ObjectId:
-    try:
-        return ObjectId(id_str)
-    except Exception:
-        raise HTTPException(status_code=422, detail=f"Invalid ID: {id_str}")
+class SelectRecipeBody(BaseModel):
+    recipe_id: str
+
+
+async def _active_session_for_user(user_id: str) -> dict | None:
+    db = get_db()
+    return await db.brew_sessions.find_one({"user_id": user_id, "status": "active"})
+
+
+async def _active_recipe(recipe_id: str) -> dict | None:
+    db = get_db()
+    return await db.recipes.find_one({"_id": to_object_id(recipe_id), "active": True})
+
+
+def _sync_entry_from_session(session_id: str, session_doc: dict, user: UserPublic) -> None:
+    entry = st.sessions.get(session_id)
+    if entry:
+        entry.recipe_id = session_doc["recipe_id"]
+        entry.current_step = session_doc.get("current_step", 0)
+        entry.last_seen = session_doc.get("last_seen", datetime.utcnow())
+    else:
+        st.sessions[session_id] = st.SessionEntry(
+            esp_id=session_doc["esp_id"],
+            user={"id": user.id, "name": user.name, "role": user.role},
+            recipe_id=session_doc["recipe_id"],
+            current_step=session_doc.get("current_step", 0),
+            last_seen=session_doc.get("last_seen", datetime.utcnow()),
+        )
+    st.esp_registry[session_doc["esp_id"]] = session_id
+
+
+async def _write_history(session_id: str, session_doc: dict, user: UserPublic) -> None:
+    db = get_db()
+    existing = await db.history.find_one({"session_id": session_id})
+    if existing:
+        return
+    recipe_doc = await db.recipes.find_one({"_id": to_object_id(session_doc["recipe_id"])})
+    completed_at = datetime.utcnow()
+    history = HistoryModel(
+        session_id=session_id,
+        user_id=session_doc["user_id"],
+        recipe_id=session_doc["recipe_id"],
+        recipe_name=recipe_doc["name"] if recipe_doc else "Unknown",
+        worker_name=user.name,
+        cooked_by_admin=user.role == "admin",
+        started_at=session_doc["started_at"],
+        completed_at=completed_at,
+    )
+    await db.history.insert_one(history.model_dump(by_alias=True, exclude_none=True))
+
+
+async def _notify_complete(session_id: str, session_doc: dict) -> None:
+    from routers.ws import _send
+
+    entry = st.sessions.get(session_id)
+    esp_id = entry.esp_id if entry else session_doc.get("esp_id")
+    if entry:
+        await _send(entry.browser_ws, {"event": "session_complete"})
+    await _send(st.esp_sockets.get(esp_id), {"event": "session_complete"})
+    if esp_id:
+        st.esp_registry.pop(esp_id, None)
+    st.sessions.pop(session_id, None)
+
+
+@router.post("/select-recipe")
+async def select_recipe(
+    body: SelectRecipeBody,
+    user: UserPublic = Depends(get_current_user),
+):
+    db = get_db()
+    session_doc = await _active_session_for_user(user.id)
+    if not session_doc:
+        raise HTTPException(status_code=404, detail="No active session")
+    recipe_doc = await _active_recipe(body.recipe_id)
+    if not recipe_doc:
+        raise HTTPException(status_code=404, detail="Recipe not found")
+
+    session_id = str(session_doc["_id"])
+    now = datetime.utcnow()
+    await db.brew_sessions.update_one(
+        {"_id": session_doc["_id"]},
+        {"$set": {"recipe_id": body.recipe_id, "current_step": 0, "last_seen": now}},
+    )
+    session_doc["recipe_id"] = body.recipe_id
+    session_doc["current_step"] = 0
+    session_doc["last_seen"] = now
+    _sync_entry_from_session(session_id, session_doc, user)
+    return ok({"session_id": session_id, "recipe": serialize_recipe(recipe_doc)})
+
+
+@router.get("/current")
+async def get_current_session(user: UserPublic = Depends(get_current_user)):
+    db = get_db()
+    session_doc = await _active_session_for_user(user.id)
+    if not session_doc:
+        raise HTTPException(status_code=404, detail="No active session")
+
+    recipe_doc = await db.recipes.find_one({"_id": to_object_id(session_doc["recipe_id"])})
+    cutoff = datetime.utcnow() - timedelta(minutes=10)
+    abandoned = await db.brew_sessions.find_one({
+        "user_id": user.id,
+        "status": "abandoned",
+        "completed_at": {"$gte": cutoff},
+    })
+    return ok({
+        "session": serialize_doc(session_doc),
+        "recipe": serialize_recipe(recipe_doc),
+        "resume_available": abandoned is not None,
+    })
+
+
+@router.patch("/current/heartbeat")
+async def heartbeat(user: UserPublic = Depends(get_current_user)):
+    db = get_db()
+    now = datetime.utcnow()
+    result = await db.brew_sessions.find_one_and_update(
+        {"user_id": user.id, "status": "active"},
+        {"$set": {"last_seen": now}},
+    )
+    if not result:
+        raise HTTPException(status_code=404, detail="No active session")
+    session_id = str(result["_id"])
+    if session_id in st.sessions:
+        st.sessions[session_id].last_seen = now
+    return ok({"ok": True})
+
+
+@router.post("/current/discard")
+async def discard_current_session(user: UserPublic = Depends(get_current_user)):
+    session_doc = await _active_session_for_user(user.id)
+    if not session_doc:
+        raise HTTPException(status_code=404, detail="No active session")
+    from routers.ws import _abandon_session
+
+    await _abandon_session(str(session_doc["_id"]), "discarded")
+    return ok({"status": "abandoned"})
+
+
+@router.post("/current/ping-close")
+async def ping_close(request: Request, user: UserPublic = Depends(get_current_user)):
+    db = get_db()
+    doc = await _active_session_for_user(user.id)
+    if not doc:
+        return ok({"status": "closed"})
+    session_id = str(doc["_id"])
+    entry = st.sessions.get(session_id)
+    if entry and entry.esp_id not in st.esp_sockets:
+        from routers.ws import _abandon_session
+        await _abandon_session(session_id, "browser_close")
+    return ok({"status": "closed"})
 
 
 @router.post("", status_code=201)
@@ -26,12 +174,11 @@ async def create_session(
 ):
     db = get_db()
 
-    recipe_doc = await db.recipes.find_one({"_id": _to_object_id(body.recipe_id)})
+    recipe_doc = await _active_recipe(body.recipe_id)
     if not recipe_doc:
         raise HTTPException(status_code=404, detail="Recipe not found")
 
-    # Abandon any existing active session for this user
-    existing = await db.brew_sessions.find_one({"user_id": user.id, "status": "active"})
+    existing = await _active_session_for_user(user.id)
     if existing:
         from routers.ws import _abandon_session
         await _abandon_session(str(existing["_id"]), "replaced")
@@ -55,46 +202,28 @@ async def create_session(
     st.sessions[session_id] = entry
     st.esp_registry[body.esp_id] = session_id
 
-    return {"session_id": session_id}
+    return ok({"session_id": session_id})
 
 
-@router.get("/current")
-async def get_current_session(user: UserPublic = Depends(get_current_user)):
+@router.post("/{session_id}/complete")
+async def complete_session(
+    session_id: str,
+    user: UserPublic = Depends(get_current_user),
+):
     db = get_db()
-    doc = await db.brew_sessions.find_one({"user_id": user.id, "status": "active"})
-    if not doc:
-        raise HTTPException(status_code=404, detail="No active session")
-    doc["_id"] = str(doc["_id"])
-    return doc
+    session_doc = await db.brew_sessions.find_one({"_id": to_object_id(session_id)})
+    if not session_doc:
+        raise HTTPException(status_code=404, detail="Session not found")
+    if user.role != "admin" and session_doc["user_id"] != user.id:
+        raise HTTPException(status_code=403, detail="Access denied")
 
-
-@router.patch("/current/heartbeat")
-async def heartbeat(user: UserPublic = Depends(get_current_user)):
-    db = get_db()
     now = datetime.utcnow()
-    result = await db.brew_sessions.find_one_and_update(
-        {"user_id": user.id, "status": "active"},
-        {"$set": {"last_seen": now}},
+    await db.brew_sessions.update_one(
+        {"_id": ObjectId(session_id)},
+        {"$set": {"status": "completed", "completed_at": now}},
     )
-    if not result:
-        raise HTTPException(status_code=404, detail="No active session")
-    session_id = str(result["_id"])
-    if session_id in st.sessions:
-        st.sessions[session_id].last_seen = now
-    return {"ok": True}
-
-
-@router.post("/current/ping-close")
-async def ping_close(request: Request, user: UserPublic = Depends(get_current_user)):
-    # Called via navigator.sendBeacon on page unload — body may be empty
-    db = get_db()
-    doc = await db.brew_sessions.find_one({"user_id": user.id, "status": "active"})
-    if not doc:
-        return {"ok": True}
-    session_id = str(doc["_id"])
-    # Only abandon if the ESP is not connected (hardware still running is ok)
-    entry = st.sessions.get(session_id)
-    if entry and entry.esp_id not in st.esp_sockets:
-        from routers.ws import _abandon_session
-        await _abandon_session(session_id, "browser_close")
-    return {"ok": True}
+    session_doc["completed_at"] = now
+    session_doc["status"] = "completed"
+    await _write_history(session_id, session_doc, user)
+    await _notify_complete(session_id, session_doc)
+    return ok(None)
