@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Coffee Bar — History</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header class="app-header">
+    <span class="header-logo">☕ Coffee Bar</span>
+    <nav class="header-nav">
+      <a href="select.html">Brew</a>
+      <a href="history.html" class="active">History</a>
+    </nav>
+    <div class="header-user">
+      <span id="user-name"></span>
+      <button class="btn btn-ghost" onclick="logout()">Logout</button>
+    </div>
+  </header>
+
+  <main class="main-content">
+    <h2 id="history-title">Brew History</h2>
+    <div id="status-banner" class="status-banner hidden"></div>
+
+    <div class="table-wrap">
+      <table class="history-table">
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th>Recipe</th>
+            <th id="worker-col">Worker</th>
+            <th>Duration</th>
+            <th>Admin Brew</th>
+          </tr>
+        </thead>
+        <tbody id="history-body">
+          <tr><td colspan="5" class="loading-cell"><div class="spinner"></div></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div id="pagination" class="pagination"></div>
+  </main>
+
+  <script src="js/api.js"></script>
+  <script src="js/history.js"></script>
+</body>
+</html>

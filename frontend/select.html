@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Coffee Bar — Select Recipe</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header class="app-header">
+    <span class="header-logo">☕ Coffee Bar</span>
+    <div class="header-user">
+      <span id="user-name"></span>
+      <button class="btn btn-ghost" onclick="logout()">Logout</button>
+    </div>
+  </header>
+
+  <main class="main-content">
+    <h2>Choose a Recipe</h2>
+    <div id="status-banner" class="status-banner hidden"></div>
+    <div id="recipes-grid" class="recipes-grid">
+      <div class="spinner"></div>
+    </div>
+  </main>
+
+  <script src="js/api.js"></script>
+  <script src="js/select.js"></script>
+</body>
+</html>

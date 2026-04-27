@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Coffee Bar — Admin</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header class="app-header">
+    <span class="header-logo">☕ Coffee Bar</span>
+    <nav class="header-nav">
+      <a href="select.html">Brew</a>
+      <a href="history.html">History</a>
+      <a href="admin.html" class="active">Admin</a>
+    </nav>
+    <div class="header-user">
+      <span id="user-name"></span>
+      <button class="btn btn-ghost" onclick="logout()">Logout</button>
+    </div>
+  </header>
+
+  <main class="main-content admin-main">
+    <div class="tab-bar">
+      <button class="tab-btn active" data-tab="users">Users</button>
+      <button class="tab-btn" data-tab="recipes">Recipes</button>
+    </div>
+
+    <!-- Users tab -->
+    <section id="tab-users" class="tab-panel">
+      <div class="panel-header">
+        <h2>Users</h2>
+        <button class="btn btn-primary" id="add-user-btn">+ Add User</button>
+      </div>
+
+      <div id="add-user-form" class="card form-card hidden">
+        <h3>New User</h3>
+        <label>Name<input type="text" id="new-user-name" placeholder="Barista Name"></label>
+        <label>RFID UID<input type="text" id="new-user-rfid" placeholder="e.g. A1B2C3D4"></label>
+        <label>Role
+          <select id="new-user-role">
+            <option value="client">Client</option>
+            <option value="admin">Admin</option>
+          </select>
+        </label>
+        <div class="form-actions">
+          <button class="btn btn-primary" id="save-user-btn">Save</button>
+          <button class="btn btn-ghost" id="cancel-user-btn">Cancel</button>
+        </div>
+        <p id="user-form-error" class="form-error hidden"></p>
+      </div>
+
+      <div class="table-wrap">
+        <table class="admin-table">
+          <thead>
+            <tr><th>Name</th><th>Role</th><th>Created</th><th></th></tr>
+          </thead>
+          <tbody id="users-body">
+            <tr><td colspan="4" class="loading-cell"><div class="spinner"></div></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Recipes tab -->
+    <section id="tab-recipes" class="tab-panel hidden">
+      <div class="panel-header">
+        <h2>Recipes</h2>
+        <button class="btn btn-primary" id="add-recipe-btn">+ New Recipe</button>
+      </div>
+
+      <div id="recipe-form" class="card form-card hidden">
+        <h3 id="recipe-form-title">New Recipe</h3>
+        <input type="hidden" id="recipe-id">
+        <label>Name<input type="text" id="recipe-name"></label>
+        <label>Description<textarea id="recipe-desc" rows="2"></textarea></label>
+        <label class="checkbox-label">
+          <input type="checkbox" id="recipe-active" checked> Active
+        </label>
+
+        <div class="steps-header">
+          <strong>Steps</strong>
+          <button class="btn btn-ghost btn-sm" id="add-step-btn">+ Add Step</button>
+        </div>
+        <div id="steps-list" class="steps-list"></div>
+
+        <div class="form-actions">
+          <button class="btn btn-primary" id="save-recipe-btn">Save Recipe</button>
+          <button class="btn btn-ghost" id="cancel-recipe-btn">Cancel</button>
+        </div>
+        <p id="recipe-form-error" class="form-error hidden"></p>
+      </div>
+
+      <div id="recipes-list-admin" class="recipes-admin-list">
+        <div class="spinner"></div>
+      </div>
+    </section>
+  </main>
+
+  <script src="js/api.js"></script>
+  <script src="js/admin.js"></script>
+</body>
+</html>
