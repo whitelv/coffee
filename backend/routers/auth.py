@@ -73,6 +73,7 @@ async def rfid_scan(body: RfidScanBody):
     st.pending_auth[body.esp_id] = st.PendingAuth(
         token=token,
         user=user,
+        session_id=str(abandoned["_id"]) if abandoned else None,
         resume_available=resume_available,
     )
     return {"status": "ok", "token": token, "user": user, "resume_available": resume_available}
@@ -83,6 +84,11 @@ async def auth_status(esp_id: str = Query(...)):
     # Check pending auth first — valid whether ESP is connected or not (covers /rfid test endpoint)
     pending = st.pending_auth.get(esp_id)
     if pending is not None:
+        if pending.expires_at <= datetime.utcnow():
+            del st.pending_auth[esp_id]
+            if esp_id not in st.esp_sockets:
+                return {"status": "esp_offline"}
+            return {"status": "waiting"}
         del st.pending_auth[esp_id]
         return {
             "status": "authenticated",

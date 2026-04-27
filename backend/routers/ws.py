@@ -6,12 +6,12 @@ from datetime import datetime, timedelta
 import numpy as np
 from bson import ObjectId
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from fastapi.encoders import jsonable_encoder
 
 import state as st
 from config import settings
 from database import get_db
 from models.history import HistoryModel
-from models.session import BrewSessionModel
 from routers.auth import create_jwt
 
 logger = logging.getLogger(__name__)
@@ -26,25 +26,33 @@ async def _send(ws: WebSocket | None, payload: dict) -> None:
     if ws is None:
         return
     try:
-        await ws.send_text(json.dumps(payload))
+        encoded = jsonable_encoder(payload, custom_encoder={ObjectId: str})
+        await ws.send_text(json.dumps(encoded))
     except Exception:
         pass
 
 
 async def _abandon_session(session_id: str, reason: str = "timeout") -> None:
     entry = st.sessions.get(session_id)
-    if entry is None:
-        return
     db = get_db()
+    session_doc = await db.brew_sessions.find_one({"_id": ObjectId(session_id)})
+    if entry is None and session_doc is None:
+        return
+
     now = datetime.utcnow()
     await db.brew_sessions.update_one(
         {"_id": ObjectId(session_id)},
         {"$set": {"status": "abandoned", "completed_at": now}},
     )
-    await _send(entry.browser_ws, {"event": "session_abandoned"})
-    esp_ws = st.esp_sockets.get(entry.esp_id)
+
+    esp_id = entry.esp_id if entry else session_doc.get("esp_id")
+    browser_ws = entry.browser_ws if entry else None
+
+    await _send(browser_ws, {"event": "session_abandoned"})
+    esp_ws = st.esp_sockets.get(esp_id)
     await _send(esp_ws, {"event": "session_abandoned"})
-    st.esp_registry.pop(entry.esp_id, None)
+    if esp_id:
+        st.esp_registry.pop(esp_id, None)
     st.sessions.pop(session_id, None)
 
 
@@ -52,11 +60,16 @@ async def stale_session_watchdog() -> None:
     while True:
         await asyncio.sleep(60)
         now = datetime.utcnow()
-        timeout = timedelta(seconds=60)
-        for session_id, entry in list(st.sessions.items()):
-            if now - entry.last_seen > timeout:
-                logger.info("Abandoning stale session %s", session_id)
-                await _abandon_session(session_id, "timeout")
+        cutoff = now - timedelta(seconds=60)
+        db = get_db()
+        cursor = db.brew_sessions.find({
+            "status": "active",
+            "last_seen": {"$lt": cutoff},
+        })
+        async for doc in cursor:
+            session_id = str(doc["_id"])
+            logger.info("Abandoning stale session %s", session_id)
+            await _abandon_session(session_id, "timeout")
 
 
 def _check_weight_stable(entry: st.SessionEntry) -> bool:
@@ -133,6 +146,8 @@ async def esp_websocket(websocket: WebSocket, esp_id: str) -> None:
                 await _handle_weight_reading(esp_id, msg)
             elif event == "heartbeat":
                 await _handle_heartbeat(esp_id)
+            elif event == "tare_done":
+                await _handle_tare_done(esp_id)
 
     except WebSocketDisconnect:
         pass
@@ -173,6 +188,7 @@ async def _handle_rfid_scan(esp_id: str, msg: dict) -> None:
     st.pending_auth[esp_id] = st.PendingAuth(
         token=token,
         user=user,
+        session_id=str(abandoned["_id"]) if abandoned else None,
         resume_available=resume_available,
     )
     await _send(esp_ws, {
@@ -191,16 +207,32 @@ async def _handle_weight_reading(esp_id: str, msg: dict) -> None:
     if not entry or not entry.weight_streaming:
         return
 
-    value = float(msg.get("value", 0))
+    try:
+        value = float(msg.get("value", 0))
+    except (TypeError, ValueError):
+        return
     entry.weight_window.append(value)
-
-    await _send(entry.browser_ws, {"event": "weight_update", "value": value, "stable": False})
 
     if _check_weight_stable(entry):
         entry.weight_streaming = False
         esp_ws = st.esp_sockets.get(esp_id)
         await _send(esp_ws, {"event": "stop_weight"})
-        await _send(entry.browser_ws, {"event": "weight_stable", "value": value})
+        await _send(entry.browser_ws, {"event": "weight_stable", "value": round(value, 1)})
+    else:
+        await _send(
+            entry.browser_ws,
+            {"event": "weight_update", "value": round(value, 1), "stable": False},
+        )
+
+
+async def _handle_tare_done(esp_id: str) -> None:
+    session_id = st.esp_registry.get(esp_id)
+    if not session_id:
+        return
+    entry = st.sessions.get(session_id)
+    if not entry:
+        return
+    await _send(entry.browser_ws, {"event": "tare_done"})
 
 
 async def _handle_heartbeat(esp_id: str) -> None:
@@ -235,6 +267,9 @@ async def browser_websocket(websocket: WebSocket, session_id: str) -> None:
     entry.browser_ws = websocket
     logger.info("Browser connected to session %s", session_id)
 
+    if entry.esp_id in st.esp_sockets:
+        await _send(websocket, {"event": "esp_reconnected"})
+
     db = get_db()
     recipe_doc = await db.recipes.find_one({"_id": ObjectId(entry.recipe_id)})
     recipe_data = None
@@ -262,6 +297,8 @@ async def browser_websocket(websocket: WebSocket, session_id: str) -> None:
                 await _handle_start_weight(session_id, entry, msg, recipe_data)
             elif event == "next_step":
                 await _handle_next_step(session_id, entry, recipe_data)
+            elif event == "tare_scale":
+                await _handle_tare_scale(entry)
             elif event == "ping":
                 await _send(websocket, {"event": "pong"})
 
@@ -285,12 +322,21 @@ async def _handle_start_weight(
     if entry.current_step >= len(steps):
         return
     step = steps[entry.current_step]
-    entry.weight_target = step.get("target_value")
+    if step.get("type") != "weight":
+        return
+    try:
+        target = float(msg.get("target"))
+    except (TypeError, ValueError):
+        target = step.get("target_value")
+    if target is None:
+        return
+
+    entry.weight_target = target
     entry.weight_tolerance = step.get("tolerance")
     entry.weight_streaming = True
     entry.weight_window.clear()
     esp_ws = st.esp_sockets.get(entry.esp_id)
-    await _send(esp_ws, {"event": "request_weight", "target": entry.weight_target})
+    await _send(esp_ws, {"event": "request_weight", "target": target})
 
 
 async def _handle_next_step(
@@ -304,6 +350,11 @@ async def _handle_next_step(
     entry.current_step += 1
     entry.weight_streaming = False
     entry.weight_window.clear()
+    entry.weight_target = None
+    entry.weight_tolerance = None
+
+    esp_ws = st.esp_sockets.get(entry.esp_id)
+    await _send(esp_ws, {"event": "stop_weight"})
 
     db = get_db()
     await db.brew_sessions.update_one(
@@ -320,3 +371,8 @@ async def _handle_next_step(
             "step_index": entry.current_step,
             "step": next_step,
         })
+
+
+async def _handle_tare_scale(entry: st.SessionEntry) -> None:
+    esp_ws = st.esp_sockets.get(entry.esp_id)
+    await _send(esp_ws, {"event": "tare_scale"})

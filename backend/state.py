@@ -1,6 +1,6 @@
 from collections import deque
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from fastapi import WebSocket
 
@@ -9,8 +9,11 @@ from fastapi import WebSocket
 class PendingAuth:
     token: str
     user: dict
+    session_id: str | None
     resume_available: bool
-    created_at: datetime = field(default_factory=datetime.utcnow)
+    expires_at: datetime = field(
+        default_factory=lambda: datetime.utcnow() + timedelta(seconds=30)
+    )
 
 
 @dataclass
