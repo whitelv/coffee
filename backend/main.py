@@ -11,8 +11,9 @@ from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from config import settings
-from database import close_db, connect_db
+from database import close_db, connect_db, get_db
 from routers import auth, history, recipes, sessions, users, ws
+import state as st
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -20,7 +21,21 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    await connect_db()
+    try:
+        await connect_db()
+        db = get_db()
+        await db.command("ping")
+        user_count = await db.users.count_documents({})
+        recipe_count = await db.recipes.count_documents({})
+    except Exception:
+        logger.exception("Database startup validation failed")
+        await close_db()
+        raise
+
+    logger.info("MongoDB connected")
+    logger.info("Startup data loaded: users=%s recipes=%s", user_count, recipe_count)
+    logger.info("WebSocket hub initialized")
+
     watchdog_task = asyncio.create_task(ws.stale_session_watchdog())
     yield
     watchdog_task.cancel()
@@ -102,4 +117,16 @@ app.include_router(ws.router, tags=["websocket"])
 
 @app.get("/health", tags=["health"])
 async def health():
-    return {"status": "ok"}
+    db_status = "connected"
+    try:
+        await get_db().command("ping")
+    except Exception:
+        logger.exception("Health check database ping failed")
+        db_status = "disconnected"
+
+    return {
+        "ok": db_status == "connected",
+        "db": db_status,
+        "sessions_active": len(st.sessions),
+        "esp_connected": len(st.esp_sockets),
+    }

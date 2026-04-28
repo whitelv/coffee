@@ -30,8 +30,43 @@
   let dropRequested = false;
 
   /* ── Heartbeat ── */
-  const heartbeatTimer = setInterval(() => {
-    apiFetch('/api/sessions/current/heartbeat', { method: 'PATCH' }).catch(() => {});
+  let heartbeatTimer = null;
+
+  function showSessionToast(message) {
+    if (typeof showToast === 'function') {
+      showToast(message, 'error');
+    }
+  }
+
+  function handleHeartbeatExpired() {
+    if (leavingSession) return;
+    leavingSession = true;
+    clearInterval(heartbeatTimer);
+    clearInterval(timerInterval);
+    ws && ws.disconnect();
+    sessionStorage.clear();
+    showSessionToast('Session expired');
+    setTimeout(() => {
+      window.location.href = '/index.html';
+    }, 2000);
+  }
+
+  heartbeatTimer = setInterval(async () => {
+    const currentToken = sessionStorage.getItem('token');
+    if (!currentToken) {
+      handleHeartbeatExpired();
+      return;
+    }
+
+    try {
+      const res = await fetch(BASE_URL + '/api/sessions/current/heartbeat', {
+        method: 'PATCH',
+        headers: { Authorization: 'Bearer ' + currentToken },
+      });
+      if (res.status === 401) handleHeartbeatExpired();
+    } catch {
+      // Network heartbeat failures are non-blocking; normal API calls surface connectivity.
+    }
   }, 20000);
 
   /* ── Ping-close beacon ── */

@@ -8,11 +8,38 @@ if (sessionStorage.getItem('app_version') !== APP_VERSION) {
   sessionStorage.setItem('app_version', APP_VERSION);
 }
 
+function showNetworkToast(message) {
+  if (typeof showToast === 'function') {
+    showToast(message, 'error');
+  } else {
+    console.warn(message);
+  }
+}
+
+function delay(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function fetchWithNetworkRetry(url, options) {
+  try {
+    return await fetch(url, options);
+  } catch (err) {
+    showNetworkToast('Connection lost — retrying...');
+    await delay(2000);
+    try {
+      return await fetch(url, options);
+    } catch (retryErr) {
+      showNetworkToast('Server unreachable');
+      throw retryErr;
+    }
+  }
+}
+
 async function apiFetch(path, options = {}) {
   const token = sessionStorage.getItem('token');
   const headers = { 'Content-Type': 'application/json', ...options.headers };
   if (token) headers['Authorization'] = 'Bearer ' + token;
-  const res = await fetch(BASE_URL + path, { ...options, headers });
+  const res = await fetchWithNetworkRetry(BASE_URL + path, { ...options, headers });
   const data = await res.json().catch(() => ({}));
   if (res.status === 401) {
     sessionStorage.clear();

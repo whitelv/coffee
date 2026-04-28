@@ -92,4 +92,6 @@ Next steps:
        curl http://localhost:8000/health
        curl http://localhost:8000/api/recipes
 
+Tip: run 'python scripts/generate_jwt.py --rfid ADMIN001' to get an admin token for testing
+
 EOF
