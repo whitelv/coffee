@@ -21,6 +21,8 @@
   const LIMIT = 20;
   let totalPages = 1;
   let selectedUserId = '';
+  const userNameById = new Map();
+  if (user.id) userNameById.set(user.id, user.name || '');
 
   /* ── Admin: load users for filter ── */
   if (user.role === 'admin') {
@@ -32,6 +34,7 @@
         opt.value       = u._id;
         opt.textContent = u.name;
         userFilter.appendChild(opt);
+        userNameById.set(u._id, u.name);
       });
     } catch { /* ignore */ }
     userFilter.addEventListener('change', () => {
@@ -72,7 +75,7 @@
           <td>${formatDate(row.completed_at || row.created_at)}</td>
           <td>${row.recipe_name || '—'}</td>
           <td>${duration}</td>
-          <td>${row.user_name || row.brewed_by || '—'}</td>
+          <td>${row.worker_name || row.user_name || row.brewed_by || userNameById.get(row.user_id) || '—'}</td>
         </tr>`;
       }).join('');
     } catch (err) {

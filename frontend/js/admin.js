@@ -268,17 +268,18 @@
     const name = document.getElementById('ed-name').value.trim();
     const desc = document.getElementById('ed-desc').value.trim();
     if (!name) { showToast('Recipe name is required', 'error'); return; }
+    if (editorSteps.length === 0) { showToast('Add at least one step', 'error'); return; }
 
     setButtonLoading(btn, true);
     try {
       let id = editingRecipeId;
       if (!id) {
-        const created = await createRecipe({ name, description: desc });
+        const created = await createRecipe({ name, description: desc, steps: editorSteps });
         id = created._id;
       } else {
         await updateRecipe(id, { name, description: desc });
+        await updateSteps(id, editorSteps);
       }
-      await updateSteps(id, editorSteps);
       showToast('Recipe saved', 'success');
       document.getElementById('recipe-editor').classList.remove('open');
       editingRecipeId = null;
