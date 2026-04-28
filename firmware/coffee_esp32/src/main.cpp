@@ -1,7 +1,9 @@
+#include <Arduino.h>
+
 /*
  * Coffee Bar ESP32 Firmware
  *
- * Required libraries (install via Arduino IDE → Tools → Manage Libraries):
+ * Required libraries (install via PlatformIO — see platformio.ini):
  *   - ArduinoWebsockets by Gil Maimon
  *   - HX711 Arduino Library by Bogdan Necula (search "HX711 by bogde")
  *   - MFRC522 by GithubCommunity
