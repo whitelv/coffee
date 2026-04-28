@@ -2,76 +2,53 @@ const BASE_URL = window.location.hostname === 'localhost' || window.location.hos
   ? 'http://localhost:8000'
   : 'https://your-app.onrender.com';
 
-const API = {
-  baseUrl: BASE_URL,
-
-  token() {
-    return sessionStorage.getItem('token');
-  },
-
-  async request(method, path, body) {
-    const headers = { 'Content-Type': 'application/json' };
-    const token = this.token();
-    if (token) headers['Authorization'] = `Bearer ${token}`;
-
-    const res = await fetch(this.baseUrl + path, {
-      method,
-      headers,
-      body: body !== undefined ? JSON.stringify(body) : undefined,
-    });
-
-    if (res.status === 401) {
-      sessionStorage.clear();
-      location.href = 'index.html';
-      return;
-    }
-
-    if (res.status === 204) return null;
-
-    const data = await res.json();
-    if (!res.ok) throw data;
-    return data;
-  },
-
-  get(path)         { return this.request('GET',    path); },
-  post(path, body)  { return this.request('POST',   path, body); },
-  put(path, body)   { return this.request('PUT',    path, body); },
-  patch(path, body) { return this.request('PATCH',  path, body); },
-  delete(path)      { return this.request('DELETE', path); },
-};
-
-function logout() {
-  sessionStorage.clear();
-  location.href = 'index.html';
+const APP_VERSION = '2026-04-28-ws4';
+if (sessionStorage.getItem('app_version') !== APP_VERSION) {
+  sessionStorage.removeItem('session_id');
+  sessionStorage.setItem('app_version', APP_VERSION);
 }
 
-function requireAuth() {
+async function apiFetch(path, options = {}) {
   const token = sessionStorage.getItem('token');
-  if (!token) {
-    location.href = 'index.html';
-    return null;
+  const headers = { 'Content-Type': 'application/json', ...options.headers };
+  if (token) headers['Authorization'] = 'Bearer ' + token;
+  const res = await fetch(BASE_URL + path, { ...options, headers });
+  const data = await res.json().catch(() => ({}));
+  if (res.status === 401) {
+    sessionStorage.clear();
+    window.location.href = '/index.html';
+    return;
   }
-  return JSON.parse(sessionStorage.getItem('user') || 'null');
+  if (!res.ok) throw new Error(data.error || data.detail || 'HTTP ' + res.status);
+  return data.ok !== undefined ? data.data : data;
 }
 
-function requireAdmin() {
-  const user = requireAuth();
-  if (user && user.role !== 'admin') {
-    location.href = 'select.html';
-    return null;
-  }
-  return user;
+/* ── Recipes ────────────────────────────────────────────────────────────── */
+function getRecipes()            { return apiFetch('/api/recipes'); }
+function getRecipe(id)           { return apiFetch(`/api/recipes/${id}`); }
+function createRecipe(data)      { return apiFetch('/api/recipes', { method: 'POST', body: JSON.stringify(data) }); }
+function updateRecipe(id, data)  { return apiFetch(`/api/recipes/${id}`, { method: 'PUT', body: JSON.stringify(data) }); }
+function updateSteps(id, steps)  { return apiFetch(`/api/recipes/${id}/steps`, { method: 'PUT', body: JSON.stringify({ steps }) }); }
+function deleteRecipe(id)        { return apiFetch(`/api/recipes/${id}`, { method: 'DELETE' }); }
+
+/* ── Sessions ───────────────────────────────────────────────────────────── */
+function createSession(data)     { return apiFetch('/api/sessions', { method: 'POST', body: JSON.stringify(data) }); }
+function selectRecipe(recipe_id) { return createSession({ recipe_id, esp_id: 'ESP32_BAR_01' }); }
+function getCurrentSession()     { return apiFetch('/api/sessions/current'); }
+function discardSession()        { return apiFetch('/api/sessions/current/discard', { method: 'POST' }); }
+function completeSession(id)     { return apiFetch(`/api/sessions/${id}/complete`, { method: 'POST' }); }
+
+/* ── History ────────────────────────────────────────────────────────────── */
+function getMyHistory(page = 1, limit = 20) {
+  return apiFetch(`/api/history/me?page=${page}&limit=${limit}`);
+}
+function getAllHistory(page = 1, limit = 20, user_id = '') {
+  const q = user_id ? `&user_id=${user_id}` : '';
+  return apiFetch(`/api/history/all?page=${page}&limit=${limit}${q}`);
 }
 
-function formatDuration(startedAt, completedAt) {
-  if (!startedAt || !completedAt) return '—';
-  const secs = Math.round((new Date(completedAt) - new Date(startedAt)) / 1000);
-  const m = Math.floor(secs / 60);
-  const s = secs % 60;
-  return `${m}m ${s}s`;
-}
-
-function formatDate(iso) {
-  if (!iso) return '—';
-  return new Date(iso).toLocaleString();
-}
+/* ── Users ──────────────────────────────────────────────────────────────── */
+function getUsers()              { return apiFetch('/api/users'); }
+function createUser(data)        { return apiFetch('/api/users', { method: 'POST', body: JSON.stringify(data) }); }
+function updateUser(id, data)    { return apiFetch(`/api/users/${id}`, { method: 'PUT', body: JSON.stringify(data) }); }
+function deleteUser(id)          { return apiFetch(`/api/users/${id}`, { method: 'DELETE' }); }

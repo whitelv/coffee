@@ -1,93 +1,81 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Coffee Bar — Brewing</title>
-  <link rel="stylesheet" href="css/style.css">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Brewing — Coffee Bar</title>
+  <link rel="stylesheet" href="css/style.css" />
 </head>
 <body>
-  <header class="app-header">
-    <span class="header-logo">☕ Coffee Bar</span>
-    <div class="header-user">
-      <span id="user-name"></span>
-    </div>
-  </header>
 
-  <div id="esp-banner" class="status-banner status-warning hidden">
-    ⚠️ Hardware disconnected — reconnecting...
-  </div>
-
-  <main class="main-content brew-main">
-    <div id="loading" class="brew-loading">
-      <div class="spinner"></div>
-      <p>Connecting to session…</p>
-    </div>
-
-    <div id="brew-ui" class="hidden">
-      <!-- Step progress bar -->
-      <div id="step-progress" class="step-progress"></div>
-
-      <!-- Current step card -->
-      <div class="card brew-card">
-        <div id="step-type-icon" class="step-type-icon"></div>
-        <h2 id="step-label" class="step-label"></h2>
-
-        <!-- Weight step UI -->
-        <div id="weight-ui" class="step-ui hidden">
-          <div class="weight-gauge-wrap">
-            <svg class="weight-gauge" viewBox="0 0 120 120">
-              <circle class="gauge-track" cx="60" cy="60" r="50" />
-              <circle id="gauge-fill" class="gauge-fill" cx="60" cy="60" r="50"
-                      stroke-dasharray="314" stroke-dashoffset="314" />
-            </svg>
-            <div class="weight-display">
-              <span id="weight-value">0.0</span>
-              <span class="weight-unit">g</span>
-            </div>
-          </div>
-          <p class="weight-target-label">Target: <strong id="weight-target">—</strong> g</p>
-          <div id="weight-stable-badge" class="stable-badge hidden">✓ Stable</div>
-        </div>
-
-        <!-- Timer step UI -->
-        <div id="timer-ui" class="step-ui hidden">
-          <div class="timer-display">
-            <span id="timer-value">00:00</span>
-          </div>
-          <div class="timer-bar-wrap">
-            <div id="timer-bar" class="timer-bar"></div>
-          </div>
-        </div>
-
-        <!-- Instruction step UI -->
-        <div id="instruction-ui" class="step-ui hidden">
-          <p id="instruction-text" class="instruction-text"></p>
-        </div>
-
-        <button id="next-btn" class="btn btn-primary next-btn hidden">
-          Next Step →
-        </button>
+  <!-- Resume modal -->
+  <div id="resume-modal" class="modal">
+    <div class="modal-backdrop"></div>
+    <div class="modal-content">
+      <div class="modal-header"><h3>Unfinished Session</h3></div>
+      <p id="resume-modal-text" style="color:var(--text-muted); margin-bottom:1.25rem;"></p>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" id="btn-start-fresh">Start Fresh</button>
+        <button class="btn btn-primary"   id="btn-resume">Resume</button>
       </div>
     </div>
+  </div>
 
-    <!-- Completion screen -->
-    <div id="complete-screen" class="complete-screen hidden">
-      <div class="complete-icon">🎉</div>
-      <h2>Brew Complete!</h2>
-      <p>Redirecting to history…</p>
+  <!-- ESP32 disconnect overlay -->
+  <div id="esp-overlay" class="overlay">
+    <div class="overlay-icon">⚠️</div>
+    <div class="overlay-text">Scale disconnected — waiting for hardware…</div>
+  </div>
+
+  <!-- Completion screen -->
+  <div id="complete-screen">
+    <div class="complete-icon">☕</div>
+    <h1 style="color:var(--accent);">Coffee Ready!</h1>
+    <p style="color:var(--text-muted);">Your brew is complete.</p>
+    <a href="select.html" class="btn btn-primary" style="margin-top:0.5rem;">Back to Menu</a>
+  </div>
+
+  <!-- Main layout -->
+  <div id="brew-app" style="display:none;">
+    <nav class="nav">
+      <span class="nav-brand">☕ Coffee Bar</span>
+      <div class="nav-links">
+        <span class="nav-user" id="nav-username"></span>
+        <button class="btn btn-sm btn-secondary" id="btn-drop-session">Drop Session</button>
+      </div>
+    </nav>
+
+    <div class="brew-layout">
+      <!-- Top bar -->
+      <div class="brew-top-bar">
+        <div class="brew-top-meta">
+          <span class="brew-recipe-name" id="top-recipe-name">—</span>
+          <span id="top-step-counter">Step 1 of 1</span>
+        </div>
+        <div class="progress-track">
+          <div class="progress-bar" id="top-progress" style="width:0%"></div>
+        </div>
+      </div>
+
+      <!-- Main step card -->
+      <div class="brew-main">
+        <div class="step-card card" id="step-card">
+          <p style="color:var(--text-muted);">Connecting…</p>
+        </div>
+      </div>
+
+      <!-- Step sidebar -->
+      <div class="step-sidebar">
+        <div class="sidebar-title">Steps</div>
+        <div id="step-list"></div>
+      </div>
     </div>
+  </div>
 
-    <!-- Abandoned screen -->
-    <div id="abandoned-screen" class="abandoned-screen hidden">
-      <div class="abandoned-icon">⏱️</div>
-      <h2>Session Timed Out</h2>
-      <p>No activity detected. <a href="index.html">Start again</a></p>
-    </div>
-  </main>
-
-  <script src="js/api.js"></script>
-  <script src="js/ws.js"></script>
-  <script src="js/brew.js"></script>
+  <div id="toast-container"></div>
+  <script src="js/api.js?v=3"></script>
+  <script src="js/ws.js?v=3"></script>
+  <script src="js/utils.js?v=2"></script>
+  <script src="js/brew.js?v=7"></script>
 </body>
 </html>

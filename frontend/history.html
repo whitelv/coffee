@@ -1,49 +1,62 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Coffee Bar — History</title>
-  <link rel="stylesheet" href="css/style.css">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>History — Coffee Bar</title>
+  <link rel="stylesheet" href="css/style.css" />
 </head>
 <body>
-  <header class="app-header">
-    <span class="header-logo">☕ Coffee Bar</span>
-    <nav class="header-nav">
-      <a href="select.html">Brew</a>
-      <a href="history.html" class="active">History</a>
-    </nav>
-    <div class="header-user">
-      <span id="user-name"></span>
-      <button class="btn btn-ghost" onclick="logout()">Logout</button>
+  <nav class="nav">
+    <span class="nav-brand">☕ Coffee Bar</span>
+    <div class="nav-links">
+      <a href="select.html">Menu</a>
+      <a href="history.html" style="color:var(--accent);">History</a>
+      <a href="admin.html" id="nav-admin" style="display:none;">Admin</a>
+      <span class="nav-user" id="nav-username"></span>
+      <button class="btn btn-sm btn-secondary" id="btn-logout">Logout</button>
     </div>
-  </header>
+  </nav>
 
-  <main class="main-content">
-    <h2 id="history-title">Brew History</h2>
-    <div id="status-banner" class="status-banner hidden"></div>
+  <div class="page">
+    <div class="section-header">
+      <h2>Brew History</h2>
+    </div>
+
+    <div class="history-filters">
+      <div id="user-filter-wrap" style="display:none;">
+        <select class="select" id="user-filter" style="min-width:180px;">
+          <option value="">All users</option>
+        </select>
+      </div>
+    </div>
 
     <div class="table-wrap">
-      <table class="history-table">
+      <table>
         <thead>
           <tr>
             <th>Date</th>
             <th>Recipe</th>
-            <th id="worker-col">Worker</th>
             <th>Duration</th>
-            <th>Admin Brew</th>
+            <th>Brewed By</th>
           </tr>
         </thead>
         <tbody id="history-body">
-          <tr><td colspan="5" class="loading-cell"><div class="spinner"></div></td></tr>
+          <tr><td colspan="4" style="color:var(--text-muted);">Loading…</td></tr>
         </tbody>
       </table>
     </div>
 
-    <div id="pagination" class="pagination"></div>
-  </main>
+    <div class="pagination">
+      <button class="btn btn-sm btn-secondary" id="btn-prev" disabled>← Previous</button>
+      <span id="page-label">Page 1</span>
+      <button class="btn btn-sm btn-secondary" id="btn-next">Next →</button>
+    </div>
+  </div>
 
+  <div id="toast-container"></div>
   <script src="js/api.js"></script>
+  <script src="js/utils.js"></script>
   <script src="js/history.js"></script>
 </body>
 </html>

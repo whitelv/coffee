@@ -1,103 +1,123 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Coffee Bar — Admin</title>
-  <link rel="stylesheet" href="css/style.css">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Admin — Coffee Bar</title>
+  <link rel="stylesheet" href="css/style.css" />
 </head>
 <body>
-  <header class="app-header">
-    <span class="header-logo">☕ Coffee Bar</span>
-    <nav class="header-nav">
-      <a href="select.html">Brew</a>
+  <nav class="nav">
+    <span class="nav-brand">&#9749; Coffee Bar</span>
+    <div class="nav-links">
+      <a href="select.html">Menu</a>
       <a href="history.html">History</a>
-      <a href="admin.html" class="active">Admin</a>
-    </nav>
-    <div class="header-user">
-      <span id="user-name"></span>
-      <button class="btn btn-ghost" onclick="logout()">Logout</button>
+      <a href="admin.html" style="color:var(--accent);">Admin</a>
+      <span class="nav-user" id="nav-username"></span>
+      <button class="btn btn-sm btn-secondary" id="btn-logout">Logout</button>
     </div>
-  </header>
+  </nav>
 
-  <main class="main-content admin-main">
-    <div class="tab-bar">
+  <div class="page">
+    <div class="section-header" style="margin-bottom:0;"><h2>Admin Panel</h2></div>
+    <div class="tabs" style="margin-top:1rem;">
       <button class="tab-btn active" data-tab="users">Users</button>
       <button class="tab-btn" data-tab="recipes">Recipes</button>
     </div>
 
-    <!-- Users tab -->
-    <section id="tab-users" class="tab-panel">
-      <div class="panel-header">
-        <h2>Users</h2>
-        <button class="btn btn-primary" id="add-user-btn">+ Add User</button>
+    <!-- Users -->
+    <div id="panel-users" class="tab-panel active">
+      <div class="section-header">
+        <h3>Users</h3>
+        <button class="btn btn-primary btn-sm" id="btn-add-user">+ Add User</button>
       </div>
-
-      <div id="add-user-form" class="card form-card hidden">
-        <h3>New User</h3>
-        <label>Name<input type="text" id="new-user-name" placeholder="Barista Name"></label>
-        <label>RFID UID<input type="text" id="new-user-rfid" placeholder="e.g. A1B2C3D4"></label>
-        <label>Role
-          <select id="new-user-role">
-            <option value="client">Client</option>
-            <option value="admin">Admin</option>
-          </select>
-        </label>
-        <div class="form-actions">
-          <button class="btn btn-primary" id="save-user-btn">Save</button>
-          <button class="btn btn-ghost" id="cancel-user-btn">Cancel</button>
-        </div>
-        <p id="user-form-error" class="form-error hidden"></p>
-      </div>
-
       <div class="table-wrap">
-        <table class="admin-table">
-          <thead>
-            <tr><th>Name</th><th>Role</th><th>Created</th><th></th></tr>
-          </thead>
-          <tbody id="users-body">
-            <tr><td colspan="4" class="loading-cell"><div class="spinner"></div></td></tr>
-          </tbody>
+        <table>
+          <thead><tr><th>Name</th><th>Role</th><th>Actions</th></tr></thead>
+          <tbody id="users-body"></tbody>
         </table>
       </div>
-    </section>
+    </div>
 
-    <!-- Recipes tab -->
-    <section id="tab-recipes" class="tab-panel hidden">
-      <div class="panel-header">
-        <h2>Recipes</h2>
-        <button class="btn btn-primary" id="add-recipe-btn">+ New Recipe</button>
+    <!-- Recipes -->
+    <div id="panel-recipes" class="tab-panel">
+      <div class="section-header">
+        <h3>Recipes</h3>
+        <button class="btn btn-primary btn-sm" id="btn-add-recipe">+ Add Recipe</button>
       </div>
+      <div id="recipes-list"></div>
 
-      <div id="recipe-form" class="card form-card hidden">
-        <h3 id="recipe-form-title">New Recipe</h3>
-        <input type="hidden" id="recipe-id">
-        <label>Name<input type="text" id="recipe-name"></label>
-        <label>Description<textarea id="recipe-desc" rows="2"></textarea></label>
-        <label class="checkbox-label">
-          <input type="checkbox" id="recipe-active" checked> Active
-        </label>
+      <div id="recipe-editor" class="recipe-editor">
+        <h3 id="editor-title">New Recipe</h3>
+        <div class="form-group" style="margin-top:1rem;">
+          <label>Name</label>
+          <input type="text" class="input" id="ed-name" placeholder="Recipe name" />
+        </div>
+        <div class="form-group">
+          <label>Description</label>
+          <textarea class="input" id="ed-desc" placeholder="Short description"></textarea>
+        </div>
 
-        <div class="steps-header">
+        <div class="section-header" style="margin-bottom:0.5rem;">
           <strong>Steps</strong>
-          <button class="btn btn-ghost btn-sm" id="add-step-btn">+ Add Step</button>
+          <button class="btn btn-sm btn-secondary" id="btn-add-step">+ Add Step</button>
         </div>
-        <div id="steps-list" class="steps-list"></div>
+        <ul class="step-rows" id="step-rows"></ul>
 
-        <div class="form-actions">
-          <button class="btn btn-primary" id="save-recipe-btn">Save Recipe</button>
-          <button class="btn btn-ghost" id="cancel-recipe-btn">Cancel</button>
+        <div class="add-step-panel" id="add-step-panel">
+          <div class="step-type-picker">
+            <button class="btn btn-sm btn-secondary" data-stype="weight">&#9878; Weight</button>
+            <button class="btn btn-sm btn-secondary" data-stype="timer">&#9201; Timer</button>
+            <button class="btn btn-sm btn-secondary" data-stype="instruction">&#128203; Instruction</button>
+          </div>
+          <div class="step-fields" id="step-fields"></div>
+          <div style="display:flex;gap:0.5rem;margin-top:0.75rem;">
+            <button class="btn btn-sm btn-primary" id="btn-confirm-step">Add</button>
+            <button class="btn btn-sm btn-secondary" id="btn-cancel-step">Cancel</button>
+          </div>
         </div>
-        <p id="recipe-form-error" class="form-error hidden"></p>
-      </div>
 
-      <div id="recipes-list-admin" class="recipes-admin-list">
-        <div class="spinner"></div>
+        <div style="display:flex;gap:0.75rem;margin-top:1.25rem;">
+          <button class="btn btn-primary" id="btn-save-recipe">Save Recipe</button>
+          <button class="btn btn-secondary" id="btn-cancel-recipe">Cancel</button>
+        </div>
       </div>
-    </section>
-  </main>
+    </div>
+  </div>
 
+  <!-- User modal -->
+  <div id="user-modal" class="modal">
+    <div class="modal-backdrop"></div>
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 id="user-modal-title">Add User</h3>
+        <button class="modal-close" id="user-modal-close">&#215;</button>
+      </div>
+      <div class="form-group">
+        <label>Name</label>
+        <input type="text" class="input" id="u-name" placeholder="Full name" />
+      </div>
+      <div class="form-group">
+        <label>RFID UID</label>
+        <input type="text" class="input" id="u-rfid" placeholder="e.g. A1B2C3D4" />
+      </div>
+      <div class="form-group">
+        <label>Role</label>
+        <select class="select" id="u-role">
+          <option value="client">Client</option>
+          <option value="admin">Admin</option>
+        </select>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" id="btn-user-cancel">Cancel</button>
+        <button class="btn btn-primary" id="btn-user-save">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast-container"></div>
   <script src="js/api.js"></script>
+  <script src="js/utils.js"></script>
   <script src="js/admin.js"></script>
 </body>
 </html>

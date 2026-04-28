@@ -1,67 +1,87 @@
 (async function () {
-  const user = requireAuth();
-  if (!user) return;
+  const token = sessionStorage.getItem('token');
+  if (!token) { window.location.href = '/index.html'; return; }
+  const user = JSON.parse(sessionStorage.getItem('user') || '{}');
 
-  document.getElementById('user-name').textContent = user.name;
+  /* ── Nav ── */
+  document.getElementById('nav-username').textContent = user.name || '';
+  if (user.role === 'admin') document.getElementById('nav-admin').style.display = '';
+  document.getElementById('btn-logout').addEventListener('click', () => {
+    sessionStorage.clear(); window.location.href = '/index.html';
+  });
 
-  const titleEl  = document.getElementById('history-title');
-  const tbody    = document.getElementById('history-body');
-  const pagDiv   = document.getElementById('pagination');
-  const workerCol = document.getElementById('worker-col');
-  const banner   = document.getElementById('status-banner');
-
-  if (user.role === 'admin') {
-    titleEl.textContent = 'All Brew History';
-  } else {
-    titleEl.textContent = 'My Brew History';
-    workerCol.style.display = 'none';
-  }
+  const tbody       = document.getElementById('history-body');
+  const pageLabel   = document.getElementById('page-label');
+  const btnPrev     = document.getElementById('btn-prev');
+  const btnNext     = document.getElementById('btn-next');
+  const filterWrap  = document.getElementById('user-filter-wrap');
+  const userFilter  = document.getElementById('user-filter');
 
   let currentPage = 1;
-  const limit = 20;
+  const LIMIT = 20;
+  let totalPages = 1;
+  let selectedUserId = '';
 
-  async function loadPage(page) {
-    tbody.innerHTML = '<tr><td colspan="5" class="loading-cell"><div class="spinner"></div></td></tr>';
+  /* ── Admin: load users for filter ── */
+  if (user.role === 'admin') {
+    filterWrap.style.display = '';
     try {
-      const data = await API.get(`/api/history?page=${page}&limit=${limit}`);
-      renderRows(data.items);
-      renderPagination(data.total, page, limit);
-      currentPage = page;
-    } catch (err) {
-      banner.textContent = 'Failed to load history.';
-      banner.className = 'status-banner status-error';
-      tbody.innerHTML = '<tr><td colspan="5" class="empty-state">Error loading data.</td></tr>';
-    }
-  }
-
-  function renderRows(items) {
-    if (!items.length) {
-      tbody.innerHTML = '<tr><td colspan="5" class="empty-state">No history yet.</td></tr>';
-      return;
-    }
-    tbody.innerHTML = items.map(item => `
-      <tr>
-        <td>${formatDate(item.started_at)}</td>
-        <td>${item.recipe_name}</td>
-        <td>${item.worker_name}</td>
-        <td>${formatDuration(item.started_at, item.completed_at)}</td>
-        <td>${item.cooked_by_admin ? '✓' : ''}</td>
-      </tr>
-    `).join('');
-  }
-
-  function renderPagination(total, page, limit) {
-    const totalPages = Math.ceil(total / limit);
-    if (totalPages <= 1) { pagDiv.innerHTML = ''; return; }
-    pagDiv.innerHTML = `
-      <button class="btn btn-ghost" ${page <= 1 ? 'disabled' : ''} data-page="${page - 1}">← Prev</button>
-      <span>Page ${page} of ${totalPages}</span>
-      <button class="btn btn-ghost" ${page >= totalPages ? 'disabled' : ''} data-page="${page + 1}">Next →</button>
-    `;
-    pagDiv.querySelectorAll('button[data-page]').forEach(btn => {
-      btn.addEventListener('click', () => loadPage(parseInt(btn.dataset.page)));
+      const users = await getUsers();
+      (users || []).forEach(u => {
+        const opt = document.createElement('option');
+        opt.value       = u._id;
+        opt.textContent = u.name;
+        userFilter.appendChild(opt);
+      });
+    } catch { /* ignore */ }
+    userFilter.addEventListener('change', () => {
+      selectedUserId = userFilter.value;
+      currentPage = 1;
+      loadHistory();
     });
   }
 
-  loadPage(1);
+  async function loadHistory() {
+    tbody.innerHTML = '<tr><td colspan="4" style="color:var(--text-muted);">Loading…</td></tr>';
+    try {
+      let result;
+      if (user.role === 'admin') {
+        result = await getAllHistory(currentPage, LIMIT, selectedUserId);
+      } else {
+        result = await getMyHistory(currentPage, LIMIT);
+      }
+
+      const items = Array.isArray(result) ? result : (result.items || result.sessions || []);
+      totalPages  = result.total_pages || 1;
+      pageLabel.textContent = `Page ${currentPage} of ${totalPages}`;
+      btnPrev.disabled = currentPage <= 1;
+      btnNext.disabled = currentPage >= totalPages;
+
+      if (!items.length) {
+        tbody.innerHTML = '<tr><td colspan="4" style="color:var(--text-muted);">No brews recorded yet ☕</td></tr>';
+        return;
+      }
+
+      tbody.innerHTML = items.map(row => {
+        const duration = (row.duration_seconds != null)
+          ? formatDuration(row.duration_seconds)
+          : (row.started_at && row.completed_at
+              ? formatDuration((new Date(row.completed_at) - new Date(row.started_at)) / 1000)
+              : '—');
+        return `<tr>
+          <td>${formatDate(row.completed_at || row.created_at)}</td>
+          <td>${row.recipe_name || '—'}</td>
+          <td>${duration}</td>
+          <td>${row.user_name || row.brewed_by || '—'}</td>
+        </tr>`;
+      }).join('');
+    } catch (err) {
+      tbody.innerHTML = `<tr><td colspan="4" style="color:var(--danger);">${err.message}</td></tr>`;
+    }
+  }
+
+  btnPrev.addEventListener('click', () => { if (currentPage > 1) { currentPage--; loadHistory(); } });
+  btnNext.addEventListener('click', () => { if (currentPage < totalPages) { currentPage++; loadHistory(); } });
+
+  loadHistory();
 })();

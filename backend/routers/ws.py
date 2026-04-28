@@ -12,7 +12,7 @@ import state as st
 from config import settings
 from database import get_db
 from models.history import HistoryModel
-from routers.auth import create_jwt
+from routers.auth import create_jwt, decode_jwt
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -244,11 +244,9 @@ async def _handle_heartbeat(esp_id: str) -> None:
         return
     entry.last_seen = datetime.utcnow()
     db = get_db()
-    asyncio.create_task(
-        db.brew_sessions.update_one(
-            {"_id": ObjectId(session_id)},
-            {"$set": {"last_seen": entry.last_seen}},
-        )
+    await db.brew_sessions.update_one(
+        {"_id": ObjectId(session_id)},
+        {"$set": {"last_seen": entry.last_seen}},
     )
 
 
@@ -256,14 +254,46 @@ async def _handle_heartbeat(esp_id: str) -> None:
 # Browser WebSocket endpoint
 # ---------------------------------------------------------------------------
 
-@router.websocket("/ws/browser/{session_id}")
-async def browser_websocket(websocket: WebSocket, session_id: str) -> None:
-    entry = st.sessions.get(session_id)
-    if entry is None:
-        await websocket.close(code=4004)
+async def _browser_websocket_handler(
+    websocket: WebSocket,
+    session_id: str,
+    token: str,
+) -> None:
+    await websocket.accept()
+
+    try:
+        claims = decode_jwt(token)
+    except Exception:
+        await websocket.close(code=4001, reason="unauthorized")
         return
 
-    await websocket.accept()
+    entry = st.sessions.get(session_id)
+
+    if entry is None:
+        db = get_db()
+        try:
+            object_id = ObjectId(session_id)
+        except Exception:
+            await websocket.close(code=4004, reason="session not found")
+            return
+        session_doc = await db.brew_sessions.find_one({
+            "_id": object_id,
+            "status": "active",
+        })
+        if not session_doc:
+            await websocket.close(code=4004, reason="session not found")
+            return
+        entry = st.SessionEntry(
+            esp_id=session_doc.get("esp_id"),
+            user={"id": claims["sub"], "name": claims.get("name", ""), "role": claims["role"]},
+            recipe_id=session_doc.get("recipe_id"),
+            current_step=session_doc.get("current_step", 0),
+            last_seen=session_doc.get("last_seen", datetime.utcnow()),
+        )
+        st.sessions[session_id] = entry
+        if entry.esp_id:
+            st.esp_registry[entry.esp_id] = session_id
+
     entry.browser_ws = websocket
     logger.info("Browser connected to session %s", session_id)
 
@@ -308,6 +338,28 @@ async def browser_websocket(websocket: WebSocket, session_id: str) -> None:
         if st.sessions.get(session_id):
             st.sessions[session_id].browser_ws = None
         logger.info("Browser disconnected from session %s", session_id)
+
+
+@router.websocket("/ws/browser/{session_id}")
+async def browser_websocket(websocket: WebSocket, session_id: str, token: str = "") -> None:
+    await _browser_websocket_handler(websocket, session_id, token)
+
+
+@router.websocket("/ws/session/{session_id}")
+async def browser_websocket_legacy(websocket: WebSocket, session_id: str, token: str = "") -> None:
+    await websocket.accept()
+    try:
+        decode_jwt(token)
+        logger.warning("Legacy browser WebSocket quarantined: session=%s", session_id)
+    except Exception:
+        logger.warning("Legacy browser WebSocket quarantined with invalid token: session=%s", session_id)
+    try:
+        while True:
+            await asyncio.sleep(3600)
+    except WebSocketDisconnect:
+        pass
+    finally:
+        logger.debug("Legacy browser WebSocket disconnected: session=%s", session_id)
 
 
 async def _handle_start_weight(

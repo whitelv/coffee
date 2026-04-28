@@ -1,66 +1,127 @@
 (async function () {
-  const user = requireAuth();
-  if (!user) return;
+  const raw = sessionStorage.getItem('token');
+  if (!raw) { window.location.href = '/index.html'; return; }
+  const user = JSON.parse(sessionStorage.getItem('user') || '{}');
 
-  document.getElementById('user-name').textContent = user.name;
-
-  const grid = document.getElementById('recipes-grid');
-  const banner = document.getElementById('status-banner');
-  const espId = sessionStorage.getItem('esp_id') || 'ESP32_BAR_01';
-
-  function showError(msg) {
-    banner.textContent = msg;
-    banner.className = 'status-banner status-error';
+  /* ── Nav ── */
+  document.getElementById('nav-username').textContent = user.name || '';
+  if (user.role === 'admin') {
+    document.getElementById('nav-history').style.display = '';
+    document.getElementById('nav-admin').style.display   = '';
   }
-
-  // Check resume availability
-  if (sessionStorage.getItem('resume_available') === '1') {
-    banner.textContent = 'A previous session was found. Select a recipe to start a new one.';
-    banner.className = 'status-banner status-info';
-    sessionStorage.removeItem('resume_available');
-  }
-
-  let recipes;
-  try {
-    recipes = await API.get('/api/recipes');
-  } catch (err) {
-    grid.innerHTML = '';
-    showError('Failed to load recipes.');
-    return;
-  }
-
-  grid.innerHTML = '';
-  if (!recipes.length) {
-    grid.innerHTML = '<p class="empty-state">No recipes available.</p>';
-    return;
-  }
-
-  recipes.forEach(recipe => {
-    const card = document.createElement('div');
-    card.className = 'card recipe-card';
-    const stepCount = recipe.steps ? recipe.steps.length : 0;
-    card.innerHTML = `
-      <h3>${recipe.name}</h3>
-      <p>${recipe.description}</p>
-      <span class="step-count">${stepCount} steps</span>
-    `;
-    card.addEventListener('click', () => selectRecipe(recipe));
-    grid.appendChild(card);
+  document.getElementById('btn-logout').addEventListener('click', () => {
+    sessionStorage.clear();
+    window.location.href = '/index.html';
   });
 
-  async function selectRecipe(recipe) {
-    grid.querySelectorAll('.recipe-card').forEach(c => c.classList.remove('selected'));
-    event.currentTarget.classList.add('selected');
+  /* ── Recipes ── */
+  function estimatedTime(steps) {
+    const secs = (steps || [])
+      .filter(s => s.type === 'timer')
+      .reduce((sum, s) => sum + (s.target_value || 0), 0);
+    if (!secs) return null;
+    const m = Math.round(secs / 60);
+    return `~${m || 1}m`;
+  }
 
-    try {
-      const result = await API.post('/api/sessions', {
-        recipe_id: recipe._id,
-        esp_id: espId,
-      });
-      sessionStorage.setItem('session_id', result.session_id);
-      location.href = 'brew.html';
-    } catch (err) {
-      showError(err.detail || 'Failed to start session. Is the hardware connected?');
+  const grid = document.getElementById('recipe-grid');
+  const resumeBanner = document.getElementById('resume-banner');
+  const resumeText = document.getElementById('resume-text');
+  const btnDiscard = document.getElementById('btn-discard');
+
+  function resetRecipeCards() {
+    grid.querySelectorAll('.card-clickable').forEach(card => {
+      card.style.pointerEvents = '';
+      card.style.opacity = '';
+    });
+  }
+
+  async function startRecipe(recipeId, card = null) {
+    if (card) {
+      resetRecipeCards();
+      card.style.pointerEvents = 'none';
+      card.style.opacity = '0.6';
     }
+    try {
+      sessionStorage.removeItem('session_id');
+      const session = await createSession({ recipe_id: recipeId, esp_id: 'ESP32_BAR_01' });
+      sessionStorage.setItem('session_id', session.session_id);
+      window.location.href = '/brew.html';
+    } catch (err) {
+      if (card) {
+        card.style.pointerEvents = '';
+        card.style.opacity = '';
+      }
+      showToast(err.message || 'Could not start session', 'error');
+    }
+  }
+
+  async function loadCurrentSessionBanner() {
+    resumeBanner.style.display = 'none';
+    sessionStorage.removeItem('session_id');
+    try {
+      const current = await getCurrentSession();
+      if (!current || !current.session) return;
+      sessionStorage.setItem('session_id', current.session._id);
+      const recipeName = current.recipe ? current.recipe.name : 'brew session';
+      resumeText.textContent = `You have an unfinished ${recipeName}.`;
+      resumeBanner.style.display = '';
+    } catch {
+      sessionStorage.removeItem('session_id');
+    }
+  }
+
+  window.addEventListener('pageshow', () => {
+    resetRecipeCards();
+    loadCurrentSessionBanner();
+  });
+
+  btnDiscard.addEventListener('click', async () => {
+    btnDiscard.disabled = true;
+    try {
+      await discardSession();
+      sessionStorage.removeItem('session_id');
+      resumeBanner.style.display = 'none';
+      showToast('Session discarded', 'success');
+    } catch (err) {
+      showToast(err.message || 'Could not discard session', 'error');
+    } finally {
+      btnDiscard.disabled = false;
+    }
+  });
+
+  try {
+    await loadCurrentSessionBanner();
+    const recipes = await getRecipes();
+    if (!recipes || recipes.length === 0) {
+      grid.innerHTML = '<p style="color:var(--text-muted);">No recipes available.</p>';
+      return;
+    }
+    grid.innerHTML = '';
+    sessionStorage.removeItem('restart_recipe_id');
+
+    recipes.forEach(recipe => {
+      const card = document.createElement('div');
+      card.className = 'card card-clickable';
+
+      const stepCount = (recipe.steps || []).length;
+      const estTime   = estimatedTime(recipe.steps);
+
+      card.innerHTML = `
+        <div class="recipe-name">${recipe.name}</div>
+        <div class="recipe-desc">${recipe.description || ''}</div>
+        <div class="recipe-card-meta">
+          <span class="badge">${stepCount} step${stepCount !== 1 ? 's' : ''}</span>
+          ${estTime ? `<span class="badge badge-accent">${estTime}</span>` : ''}
+        </div>`;
+
+      card.addEventListener('click', async () => {
+        await startRecipe(recipe._id, card);
+      });
+
+      grid.appendChild(card);
+    });
+  } catch (err) {
+    grid.innerHTML = `<p style="color:var(--danger);">${err.message}</p>`;
   }
 })();

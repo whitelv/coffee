@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+import logging
 
 from bson import ObjectId
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -13,6 +14,7 @@ from routers.api_utils import ok, serialize_doc, serialize_recipe, to_object_id
 from routers.auth import get_current_user
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 class SelectRecipeBody(BaseModel):
@@ -22,6 +24,22 @@ class SelectRecipeBody(BaseModel):
 async def _active_session_for_user(user_id: str) -> dict | None:
     db = get_db()
     return await db.brew_sessions.find_one({"user_id": user_id, "status": "active"})
+
+
+async def _abandon_active_sessions_for_user(user_id: str, reason: str) -> int:
+    from routers.ws import _abandon_session
+
+    db = get_db()
+    cursor = db.brew_sessions.find({"user_id": user_id, "status": "active"})
+    count = 0
+    async for session_doc in cursor:
+        session_id = str(session_doc["_id"])
+        try:
+            await _abandon_session(session_id, reason)
+            count += 1
+        except Exception:
+            logger.exception("Failed to abandon active session %s", session_id)
+    return count
 
 
 async def _active_recipe(recipe_id: str) -> dict | None:
@@ -118,6 +136,7 @@ async def get_current_session(user: UserPublic = Depends(get_current_user)):
         "user_id": user.id,
         "status": "abandoned",
         "completed_at": {"$gte": cutoff},
+        "current_step": {"$gt": 0},
     })
     return ok({
         "session": serialize_doc(session_doc),
@@ -144,26 +163,14 @@ async def heartbeat(user: UserPublic = Depends(get_current_user)):
 
 @router.post("/current/discard")
 async def discard_current_session(user: UserPublic = Depends(get_current_user)):
-    session_doc = await _active_session_for_user(user.id)
-    if not session_doc:
+    count = await _abandon_active_sessions_for_user(user.id, "discarded")
+    if count == 0:
         raise HTTPException(status_code=404, detail="No active session")
-    from routers.ws import _abandon_session
-
-    await _abandon_session(str(session_doc["_id"]), "discarded")
-    return ok({"status": "abandoned"})
+    return ok({"status": "abandoned", "abandoned_count": count})
 
 
 @router.post("/current/ping-close")
-async def ping_close(request: Request, user: UserPublic = Depends(get_current_user)):
-    db = get_db()
-    doc = await _active_session_for_user(user.id)
-    if not doc:
-        return ok({"status": "closed"})
-    session_id = str(doc["_id"])
-    entry = st.sessions.get(session_id)
-    if entry and entry.esp_id not in st.esp_sockets:
-        from routers.ws import _abandon_session
-        await _abandon_session(session_id, "browser_close")
+async def ping_close(request: Request):
     return ok({"status": "closed"})
 
 
@@ -178,10 +185,7 @@ async def create_session(
     if not recipe_doc:
         raise HTTPException(status_code=404, detail="Recipe not found")
 
-    existing = await _active_session_for_user(user.id)
-    if existing:
-        from routers.ws import _abandon_session
-        await _abandon_session(str(existing["_id"]), "replaced")
+    await _abandon_active_sessions_for_user(user.id, "replaced")
 
     session = BrewSessionModel(
         user_id=user.id,
