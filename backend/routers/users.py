@@ -14,13 +14,12 @@ router = APIRouter()
 
 class UserUpdateBody(BaseModel):
     name: str
+    rfid_uid: str
     role: Literal["client", "admin"]
 
 
 def _public_user(doc: dict) -> dict:
-    result = serialize_doc(doc)
-    result.pop("rfid_uid", None)
-    return result
+    return serialize_doc(doc)
 
 
 @router.get("")
@@ -51,9 +50,16 @@ async def update_user(
     _ = Depends(require_admin),
 ):
     db = get_db()
+    user_oid = to_object_id(user_id)
+    existing = await db.users.find_one({
+        "rfid_uid": body.rfid_uid,
+        "_id": {"$ne": user_oid},
+    })
+    if existing:
+        raise HTTPException(status_code=409, detail="RFID UID already registered")
     result = await db.users.find_one_and_update(
-        {"_id": to_object_id(user_id)},
-        {"$set": {"name": body.name, "role": body.role}},
+        {"_id": user_oid},
+        {"$set": {"name": body.name, "rfid_uid": body.rfid_uid, "role": body.role}},
         return_document=ReturnDocument.AFTER,
     )
     if not result:

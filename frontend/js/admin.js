@@ -76,6 +76,7 @@
     const rfid = document.getElementById('u-rfid').value.trim();
     const role = document.getElementById('u-role').value;
     if (!name) { showToast('Name is required', 'error'); return; }
+    if (!rfid) { showToast('RFID UID is required', 'error'); return; }
     setButtonLoading(btn, true);
     try {
       if (editingUserId) {

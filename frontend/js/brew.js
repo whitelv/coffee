@@ -289,7 +289,12 @@
   /* ── Session bootstrap ── */
   async function init() {
     try {
-      await getCurrentSession();
+      const current = await getCurrentSession();
+      if (!current || !current.session) {
+        sessionStorage.removeItem('session_id');
+        window.location.href = '/select.html';
+        return;
+      }
       connectWS();
     } catch {
       sessionStorage.removeItem('session_id');

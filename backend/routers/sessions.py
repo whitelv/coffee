@@ -128,7 +128,11 @@ async def get_current_session(user: UserPublic = Depends(get_current_user)):
     db = get_db()
     session_doc = await _active_session_for_user(user.id)
     if not session_doc:
-        raise HTTPException(status_code=404, detail="No active session")
+        return ok({
+            "session": None,
+            "recipe": None,
+            "resume_available": False,
+        })
 
     recipe_doc = await db.recipes.find_one({"_id": to_object_id(session_doc["recipe_id"])})
     cutoff = datetime.utcnow() - timedelta(minutes=10)
