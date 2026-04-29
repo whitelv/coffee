@@ -1,10 +1,10 @@
 #pragma once
 
-#define WIFI_SSID        "netis"
-#define WIFI_PASS        "password"
-#define SERVER_URL       "ws://192.168.1.2:8000/ws/esp/ESP32_BAR_01"
+#define WIFI_SSID        "YOUR_WIFI_SSID"
+#define WIFI_PASS        "YOUR_WIFI_PASSWORD"
+#define SERVER_URL       "ws://YOUR_BACKEND_HOST:8000/ws/esp/ESP32_BAR_01"
 #define ESP_ID           "ESP32_BAR_01"
-#define CALIBRATION_F    2280.0f
+#define CALIBRATION_F    185.79f
 #define HX711_DOUT       4
 #define HX711_SCK        2
 #define MFRC522_SS       5

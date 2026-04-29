@@ -3,4 +3,7 @@ __pycache__/
 *.py[cod]
 .env
 diff.txt
+.claude/
+firmware/coffee_esp32/config.h
+firmware/coffee_esp32/include/config.h
 **/.pio/
