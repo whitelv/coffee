@@ -24,12 +24,14 @@ router = APIRouter()
 
 async def _send(ws: WebSocket | None, payload: dict) -> None:
     if ws is None:
+        logger.warning("WebSocket send skipped; no socket for payload event=%s", payload.get("event"))
         return
     try:
         encoded = jsonable_encoder(payload, custom_encoder={ObjectId: str})
         await ws.send_text(json.dumps(encoded))
+        logger.debug("WebSocket sent event=%s", payload.get("event"))
     except Exception:
-        pass
+        logger.exception("WebSocket send failed for event=%s", payload.get("event"))
 
 
 async def _abandon_session(session_id: str, reason: str = "timeout") -> None:
@@ -163,9 +165,11 @@ async def _handle_rfid_scan(esp_id: str, msg: dict) -> None:
     uid = msg.get("uid", "")
     db = get_db()
     esp_ws = st.esp_sockets.get(esp_id)
+    logger.info("RFID scan received: esp_id=%s uid=%s esp_socket=%s", esp_id, uid, esp_ws is not None)
 
     user_doc = await db.users.find_one({"rfid_uid": uid})
     if not user_doc:
+        logger.warning("RFID auth failed: unknown card uid=%s", uid)
         await _send(esp_ws, {"event": "auth_fail", "reason": "unknown_card"})
         return
 
@@ -190,6 +194,13 @@ async def _handle_rfid_scan(esp_id: str, msg: dict) -> None:
         user=user,
         session_id=str(abandoned["_id"]) if abandoned else None,
         resume_available=resume_available,
+    )
+    logger.info(
+        "RFID auth ok: esp_id=%s uid=%s user_id=%s name=%s",
+        esp_id,
+        uid,
+        user["id"],
+        user["name"],
     )
     await _send(esp_ws, {
         "event": "auth_ok",

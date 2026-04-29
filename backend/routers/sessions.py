@@ -21,6 +21,13 @@ class SelectRecipeBody(BaseModel):
     recipe_id: str
 
 
+class DeviceDisplayBody(BaseModel):
+    esp_id: str = "ESP32_BAR_01"
+    line1: str | None = None
+    line2: str | None = None
+    line3: str | None = None
+
+
 async def _active_session_for_user(user_id: str) -> dict | None:
     db = get_db()
     return await db.brew_sessions.find_one({"user_id": user_id, "status": "active"})
@@ -45,6 +52,22 @@ async def _abandon_active_sessions_for_user(user_id: str, reason: str) -> int:
 async def _active_recipe(recipe_id: str) -> dict | None:
     db = get_db()
     return await db.recipes.find_one({"_id": to_object_id(recipe_id), "active": True})
+
+
+async def _send_display_status(
+    esp_id: str,
+    line1: str,
+    line2: str = "",
+    line3: str = "",
+) -> None:
+    from routers.ws import _send
+
+    await _send(st.esp_sockets.get(esp_id), {
+        "event": "display_status",
+        "line1": line1[:21],
+        "line2": line2[:21],
+        "line3": line3[:21],
+    })
 
 
 def _sync_entry_from_session(session_id: str, session_doc: dict, user: UserPublic) -> None:
@@ -123,6 +146,20 @@ async def select_recipe(
     return ok({"session_id": session_id, "recipe": serialize_recipe(recipe_doc)})
 
 
+@router.post("/display-status")
+async def display_status(
+    body: DeviceDisplayBody,
+    user: UserPublic = Depends(get_current_user),
+):
+    await _send_display_status(
+        body.esp_id,
+        body.line1 or "Worker logged in",
+        body.line2 if body.line2 is not None else user.name,
+        body.line3 if body.line3 is not None else "Choose recipe",
+    )
+    return ok({"status": "sent", "esp_online": body.esp_id in st.esp_sockets})
+
+
 @router.get("/current")
 async def get_current_session(user: UserPublic = Depends(get_current_user)):
     db = get_db()
@@ -184,9 +221,17 @@ async def create_session(
     user: UserPublic = Depends(get_current_user),
 ):
     db = get_db()
+    logger.info(
+        "Create session requested: user_id=%s user_name=%s recipe_id=%s esp_id=%s",
+        user.id,
+        user.name,
+        body.recipe_id,
+        body.esp_id,
+    )
 
     recipe_doc = await _active_recipe(body.recipe_id)
     if not recipe_doc:
+        logger.warning("Create session failed: recipe not found recipe_id=%s", body.recipe_id)
         raise HTTPException(status_code=404, detail="Recipe not found")
 
     await _abandon_active_sessions_for_user(user.id, "replaced")
@@ -209,6 +254,15 @@ async def create_session(
     )
     st.sessions[session_id] = entry
     st.esp_registry[body.esp_id] = session_id
+    logger.info(
+        "Session created: session_id=%s user_id=%s recipe_id=%s esp_id=%s esp_socket=%s",
+        session_id,
+        user.id,
+        body.recipe_id,
+        body.esp_id,
+        body.esp_id in st.esp_sockets,
+    )
+    await _send_display_status(body.esp_id, "Brew session", "Started", recipe_doc["name"])
 
     return ok({"session_id": session_id})
 

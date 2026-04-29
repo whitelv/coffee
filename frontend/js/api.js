@@ -2,7 +2,7 @@ const BASE_URL = window.location.hostname === 'localhost' || window.location.hos
   ? 'http://localhost:8000'
   : 'https://your-app.onrender.com';
 
-const APP_VERSION = '2026-04-28-ws4';
+const APP_VERSION = '2026-04-29-oled-sync';
 if (sessionStorage.getItem('app_version') !== APP_VERSION) {
   sessionStorage.removeItem('session_id');
   sessionStorage.setItem('app_version', APP_VERSION);
@@ -64,6 +64,23 @@ function selectRecipe(recipe_id) { return createSession({ recipe_id, esp_id: 'ES
 function getCurrentSession()     { return apiFetch('/api/sessions/current'); }
 function discardSession()        { return apiFetch('/api/sessions/current/discard', { method: 'POST' }); }
 function completeSession(id)     { return apiFetch(`/api/sessions/${id}/complete`, { method: 'POST' }); }
+function syncEspDisplay(esp_id = 'ESP32_BAR_01', lines = {}) {
+  return apiFetch('/api/sessions/display-status', {
+    method: 'POST',
+    body: JSON.stringify({ esp_id, ...lines }),
+  });
+}
+async function logoutToLogin() {
+  try {
+    await syncEspDisplay('ESP32_BAR_01', {
+      line1: 'Scan RFID',
+      line2: 'to login',
+      line3: '',
+    });
+  } catch { /* Logout should still work if ESP/backend is unavailable. */ }
+  sessionStorage.clear();
+  window.location.href = '/index.html';
+}
 
 /* ── History ────────────────────────────────────────────────────────────── */
 function getMyHistory(page = 1, limit = 20) {

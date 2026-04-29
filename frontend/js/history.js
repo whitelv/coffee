@@ -6,9 +6,7 @@
   /* ── Nav ── */
   document.getElementById('nav-username').textContent = user.name || '';
   if (user.role === 'admin') document.getElementById('nav-admin').style.display = '';
-  document.getElementById('btn-logout').addEventListener('click', () => {
-    sessionStorage.clear(); window.location.href = '/index.html';
-  });
+  document.getElementById('btn-logout').addEventListener('click', logoutToLogin);
 
   const tbody       = document.getElementById('history-body');
   const pageLabel   = document.getElementById('page-label');

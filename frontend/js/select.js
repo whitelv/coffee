@@ -2,6 +2,7 @@
   const raw = sessionStorage.getItem('token');
   if (!raw) { window.location.href = '/index.html'; return; }
   const user = JSON.parse(sessionStorage.getItem('user') || '{}');
+  syncEspDisplay().catch(() => {});
 
   /* ── Nav ── */
   document.getElementById('nav-username').textContent = user.name || '';
@@ -9,10 +10,7 @@
     document.getElementById('nav-history').style.display = '';
     document.getElementById('nav-admin').style.display   = '';
   }
-  document.getElementById('btn-logout').addEventListener('click', () => {
-    sessionStorage.clear();
-    window.location.href = '/index.html';
-  });
+  document.getElementById('btn-logout').addEventListener('click', logoutToLogin);
 
   /* ── Recipes ── */
   function estimatedTime(steps) {

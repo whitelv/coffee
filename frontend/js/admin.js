@@ -5,9 +5,7 @@
   if (user.role !== 'admin') { window.location.href = '/select.html'; return; }
 
   document.getElementById('nav-username').textContent = user.name || '';
-  document.getElementById('btn-logout').addEventListener('click', () => {
-    sessionStorage.clear(); window.location.href = '/index.html';
-  });
+  document.getElementById('btn-logout').addEventListener('click', logoutToLogin);
 
   /* ── Tabs ── */
   document.querySelectorAll('.tab-btn').forEach(btn => {
